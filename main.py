@@ -688,3 +688,72 @@ class NullifierCore:
             session.close_reason = reason[:120]
             self._push("session", "low", {"action": "close", "session_id": session_id, "reason": reason[:60]})
             return {"ok": True, "session_id": session_id}
+
+    def flag_session(self, session_id: str, signal: str, confidence: int) -> Dict[str, object]:
+        with self._lock:
+            session = self.sessions.get(session_id)
+            if not session:
+                return {"ok": False, "error": "session-not-found"}
+            if session.closed:
+                return {"ok": False, "error": "closed"}
+            session.flagged = True
+            sev = _risk_bucket(max(0, min(1000, confidence)))
+            self.blocklist[session.account] = _now()
+            self._push(
+                "malware",
+                sev,
+                {"action": "flag", "session_id": session_id, "signal": signal[:70], "confidence": confidence},
+            )
+            ticket_id = _rand_id("inc")
+            self.incidents[ticket_id] = IncidentTicket(
+                ticket_id=ticket_id,
+                created_at=_now(),
+                severity=sev,
+                account=session.account,
+                session_id=session_id,
+                signal=signal[:70],
+                status="open",
+                notes="auto-flag",
+            )
+            return {"ok": True, "session_id": session_id, "severity": sev}
+
+    def close_incident(self, ticket_id: str, notes: str) -> Dict[str, object]:
+        with self._lock:
+            ticket = self.incidents.get(ticket_id)
+            if not ticket:
+                return {"ok": False, "error": "incident-not-found"}
+            ticket.status = "closed"
+            ticket.notes = notes[:180]
+            self._push("incident", "low", {"action": "close", "ticket_id": ticket_id})
+            return {"ok": True, "ticket_id": ticket_id}
+
+    def list_incidents(self) -> List[Dict[str, object]]:
+        with self._lock:
+            rows = []
+            for t in self.incidents.values():
+                rows.append(
+                    {
+                        "ticket_id": t.ticket_id,
+                        "created_at": t.created_at,
+                        "severity": t.severity,
+                        "account": t.account,
+                        "session_id": t.session_id,
+                        "signal": t.signal,
+                        "status": t.status,
+                        "notes": t.notes,
+                    }
+                )
+            rows.sort(key=lambda r: r["created_at"], reverse=True)
+            return rows
+
+    def list_policies(self) -> List[Dict[str, object]]:
+        with self._lock:
+            rows = list(self.policy_pack.values())
+            rows.sort(key=lambda r: r["name"])
+            return rows
+
+    def update_policy(self, name: str, threshold: int, action: str, enabled: bool) -> Dict[str, object]:
+        with self._lock:
+            row = self.policy_pack.get(name)
+            if not row:
+                return {"ok": False, "error": "policy-not-found"}
