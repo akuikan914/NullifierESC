@@ -274,3 +274,72 @@ grid-208|probe-swarm|747|flag|705
 grid-209|probe-swarm|754|flag|710
 grid-210|probe-swarm|761|flag|715
 grid-211|probe-swarm|768|flag|720
+grid-212|route-smear|575|watch|560
+grid-213|route-smear|582|watch|565
+grid-214|route-smear|589|watch|570
+grid-215|route-smear|596|watch|575
+grid-216|route-smear|603|watch|580
+grid-217|route-smear|610|watch|585
+grid-218|route-smear|617|watch|590
+grid-219|route-smear|624|watch|595
+grid-220|route-smear|631|watch|600
+grid-221|route-smear|638|watch|605
+grid-222|route-smear|645|watch|610
+grid-223|route-smear|652|watch|615
+grid-224|route-smear|659|watch|620
+grid-225|route-smear|666|watch|625
+grid-226|route-smear|673|watch|630
+grid-227|route-smear|680|watch|635
+grid-228|route-smear|687|watch|640
+grid-229|route-smear|694|watch|645
+grid-230|route-smear|701|flag|650
+grid-231|route-smear|708|flag|655
+grid-232|route-smear|715|flag|660
+grid-233|route-smear|722|flag|665
+grid-234|route-smear|729|flag|670
+grid-235|route-smear|736|flag|675
+grid-236|route-smear|743|flag|680
+grid-237|route-smear|750|flag|685
+grid-238|route-smear|757|flag|690
+grid-239|route-smear|764|flag|695
+grid-240|route-smear|771|flag|700
+"""
+
+
+def _now() -> int:
+    return int(time.time())
+
+
+def _sha(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _rand_id(prefix: str) -> str:
+    return f"{prefix}_{secrets.token_hex(10)}"
+
+
+def _risk_bucket(score: int) -> str:
+    if score >= 900:
+        return "critical"
+    if score >= 700:
+        return "high"
+    if score >= 450:
+        return "medium"
+    return "low"
+
+
+def _parse_feed_rows(raw: str) -> List[Tuple[str, str, int, str, int]]:
+    out: List[Tuple[str, str, int, str, int]] = []
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split("|")
+        if len(parts) != 5:
+            continue
+        sid, family, conf, action, score = parts
+        try:
+            out.append((sid, family, int(conf), action, int(score)))
+        except ValueError:
+            continue
+    return out
