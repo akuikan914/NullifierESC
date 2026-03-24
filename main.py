@@ -481,3 +481,72 @@ class NullifierCore:
             self.signatures[signature_id] = ThreatSignature(signature_id, family, confidence, action, score)
         self._push("core", "low", {"message": "signature-pack-seeded", "signature_count": len(self.signatures)})
 
+    def policy_autotune(self) -> Dict[str, object]:
+        with self._lock:
+            incidents_open = sum(1 for i in self.incidents.values() if i.status != "closed")
+            delta = 0
+            if incidents_open >= 18:
+                delta = -35
+            elif incidents_open >= 9:
+                delta = -20
+            elif incidents_open >= 4:
+                delta = -10
+            changed = []
+            for name, row in self.policy_pack.items():
+                before = int(row["threshold"])
+                next_threshold = max(450, min(930, before + delta))
+                if next_threshold != before:
+                    row["threshold"] = next_threshold
+                    changed.append({"name": name, "before": before, "after": next_threshold})
+            self._push("policy", "medium" if delta < 0 else "low", {"action": "autotune", "delta": delta, "changed": len(changed)})
+            return {"ok": True, "delta": delta, "changed": changed}
+
+    def compact_state(self) -> Dict[str, object]:
+        with self._lock:
+            cutoff = _now() - 3600 * 24 * 3
+            before_inc = len(self.incidents)
+            self.incidents = {k: v for k, v in self.incidents.items() if v.created_at >= cutoff or v.status != "closed"}
+            before_scan = len(self.scan_jobs)
+            self.scan_jobs = {k: v for k, v in self.scan_jobs.items() if int(v.get("at", 0)) >= cutoff}
+            self.telemetry_rollups = [r for r in self.telemetry_rollups if int(r.get("at", 0)) >= cutoff]
+            self._push(
+                "maintenance",
+                "low",
+                {
+                    "action": "compact-state",
+                    "incidents_before": before_inc,
+                    "incidents_after": len(self.incidents),
+                    "scan_jobs_before": before_scan,
+                    "scan_jobs_after": len(self.scan_jobs),
+                },
+            )
+            return {
+                "ok": True,
+                "incidents_before": before_inc,
+                "incidents_after": len(self.incidents),
+                "scan_jobs_before": before_scan,
+                "scan_jobs_after": len(self.scan_jobs),
+            }
+
+    def _push(self, channel: str, severity: str, payload: Dict[str, object]) -> None:
+        row = EventRow(event_id=_rand_id("evt"), ts=_now(), channel=channel, severity=severity, payload=payload)
+        self.events.append(row)
+        if len(self.events) > MAX_EVENTS:
+            self.events = self.events[-MAX_EVENTS:]
+
+    def _severity_score(self, severity: str) -> int:
+        table = {"low": 250, "medium": 520, "high": 760, "critical": 930}
+        return table.get(severity, 250)
+
+    def health(self) -> Dict[str, object]:
+        with self._lock:
+            active_sessions = sum(1 for s in self.sessions.values() if not s.closed)
+            flagged_sessions = sum(1 for s in self.sessions.values() if s.flagged and not s.closed)
+            node_online = sum(1 for n in self.nodes.values() if n.online)
+            score = (node_online * 95) - (flagged_sessions * 12)
+            incident_open = sum(1 for i in self.incidents.values() if i.status != "closed")
+            return {
+                "app": APP_NAME,
+                "version": APP_VERSION,
+                "uptime_seconds": _now() - self.started_at,
+                "nodes_total": len(self.nodes),
