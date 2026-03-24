@@ -619,3 +619,72 @@ class NullifierCore:
             ttl = max(30, min(28800, ttl_sec))
             collateral = max(1_000_000_000_000_000, min(2_000_000_000_000_000_000, collateral_wei))
             sid = _rand_id("ses")
+            session = SessionProfile(
+                session_id=sid,
+                account=account,
+                node_id=node_id,
+                started_at=_now(),
+                expires_at=_now() + ttl,
+                collateral_wei=collateral,
+            )
+            self.sessions[sid] = session
+            self._push("session", "low", {"action": "open", "session_id": sid, "node_id": node_id})
+            return {"ok": True, "session_id": sid}
+
+    def evaluate_signal(self, account: str, session_id: str, signal: str, intensity: int) -> Dict[str, object]:
+        with self._lock:
+            score = max(0, min(1000, intensity))
+            action = "watch"
+            matched = []
+            for p in self.policy_pack.values():
+                if not p["enabled"]:
+                    continue
+                if score >= int(p["threshold"]):
+                    matched.append(p["name"])
+                    if p["action"] == "block":
+                        action = "block"
+                    elif p["action"] == "flag" and action != "block":
+                        action = "flag"
+            severity = _risk_bucket(score)
+            self._push(
+                "signal",
+                severity,
+                {
+                    "action": action,
+                    "account": account,
+                    "session_id": session_id,
+                    "signal": signal[:80],
+                    "intensity": score,
+                    "matched_policies": matched,
+                },
+            )
+            if action in ("flag", "block") and session_id in self.sessions:
+                self.sessions[session_id].flagged = True
+            if action == "block":
+                self.blocklist[account] = _now()
+            if action in ("flag", "block"):
+                ticket_id = _rand_id("inc")
+                self.incidents[ticket_id] = IncidentTicket(
+                    ticket_id=ticket_id,
+                    created_at=_now(),
+                    severity=severity,
+                    account=account,
+                    session_id=session_id,
+                    signal=signal[:80],
+                    status="open",
+                    notes=f"auto:{action}",
+                )
+            return {"ok": True, "action": action, "severity": severity, "matched_policies": matched}
+
+    def close_session(self, session_id: str, reason: str) -> Dict[str, object]:
+        with self._lock:
+            session = self.sessions.get(session_id)
+            if not session:
+                return {"ok": False, "error": "session-not-found"}
+            if session.closed:
+                return {"ok": False, "error": "already-closed"}
+            session.closed = True
+            session.closed_at = _now()
+            session.close_reason = reason[:120]
+            self._push("session", "low", {"action": "close", "session_id": session_id, "reason": reason[:60]})
+            return {"ok": True, "session_id": session_id}
