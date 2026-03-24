@@ -343,3 +343,72 @@ def _parse_feed_rows(raw: str) -> List[Tuple[str, str, int, str, int]]:
         except ValueError:
             continue
     return out
+
+
+@dataclass
+class NodeProfile:
+    node_id: str
+    region: str
+    endpoint: str
+    quality: int
+    health: int
+    online: bool = True
+    malware_bps: int = 0
+    updated_at: int = field(default_factory=_now)
+
+
+@dataclass
+class SessionProfile:
+    session_id: str
+    account: str
+    node_id: str
+    started_at: int
+    expires_at: int
+    collateral_wei: int
+    flagged: bool = False
+    closed: bool = False
+    closed_at: int = 0
+    close_reason: str = ""
+
+
+@dataclass
+class EventRow:
+    event_id: str
+    ts: int
+    channel: str
+    severity: str
+    payload: Dict[str, object]
+
+
+@dataclass
+class ThreatSignature:
+    signature_id: str
+    family: str
+    confidence: int
+    action: str
+    score: int
+
+
+@dataclass
+class IncidentTicket:
+    ticket_id: str
+    created_at: int
+    severity: str
+    account: str
+    session_id: str
+    signal: str
+    status: str
+    notes: str = ""
+
+
+class NullifierCore:
+    def __init__(self) -> None:
+        self._lock = threading.RLock()
+        self.started_at = _now()
+        self.nodes: Dict[str, NodeProfile] = {}
+        self.sessions: Dict[str, SessionProfile] = {}
+        self.events: List[EventRow] = []
+        self.allowlist: Dict[str, int] = {}
+        self.blocklist: Dict[str, int] = {}
+        self.signatures: Dict[str, ThreatSignature] = {}
+        self.incidents: Dict[str, IncidentTicket] = {}
