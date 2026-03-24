@@ -412,3 +412,72 @@ class NullifierCore:
         self.blocklist: Dict[str, int] = {}
         self.signatures: Dict[str, ThreatSignature] = {}
         self.incidents: Dict[str, IncidentTicket] = {}
+        self.policy_pack: Dict[str, Dict[str, object]] = {}
+        self.scan_jobs: Dict[str, Dict[str, object]] = {}
+        self.telemetry_rollups: List[Dict[str, object]] = []
+        self._seed_defaults()
+        self._seed_policy_pack()
+        self._seed_signatures()
+
+    def _seed_defaults(self) -> None:
+        presets = [
+            ("EU-West", "wss://eu-west.nx-relay.net/v1", 880, 950, 130),
+            ("US-East", "wss://us-east.nx-relay.net/v1", 840, 915, 160),
+            ("AP-SG", "wss://ap-sg.nx-relay.net/v1", 795, 870, 250),
+        ]
+        for region, endpoint, quality, health, malware_bps in presets:
+            node_id = _rand_id("node")
+            self.nodes[node_id] = NodeProfile(
+                node_id=node_id,
+                region=region,
+                endpoint=endpoint,
+                quality=quality,
+                health=health,
+                malware_bps=malware_bps,
+            )
+        self._push("core", "low", {"message": "defaults-seeded", "node_count": len(self.nodes)})
+
+    def _seed_policy_pack(self) -> None:
+        policy_rows = [
+            ("dns-jitter-guard", 710, "flag", 120),
+            ("relay-entropy-fence", 650, "watch", 140),
+            ("socket-rebind-block", 780, "block", 90),
+            ("egress-cluster-shield", 690, "watch", 100),
+            ("payload-surge-nullifier", 845, "block", 60),
+            ("route-echo-limiter", 580, "watch", 150),
+            ("path-drift-sentinel", 620, "watch", 160),
+            ("host-fingerprint-lock", 760, "flag", 80),
+            ("anti-c2-whisper", 890, "block", 45),
+            ("mirror-proxy-tracer", 600, "watch", 170),
+        ]
+        for name, threshold, action, cooldown in policy_rows:
+            self.policy_pack[name] = {
+                "name": name,
+                "threshold": threshold,
+                "action": action,
+                "cooldown_sec": cooldown,
+                "enabled": True,
+            }
+        self._push("core", "low", {"message": "policy-pack-seeded", "policy_count": len(self.policy_pack)})
+
+    def _seed_signatures(self) -> None:
+        rows = [
+            ("sig_dns_tunnel_arc", "dns-tunnel", 740, "flag", 740),
+            ("sig_mirror_hop_flux", "relay-hop", 695, "watch", 670),
+            ("sig_payload_spike_q1", "payload-spike", 860, "block", 860),
+            ("sig_shadow_proxy_h7", "proxy-shadow", 810, "flag", 800),
+            ("sig_socket_loop_m2", "socket-loop", 770, "flag", 760),
+            ("sig_rebind_wisp_44", "rebind", 790, "block", 790),
+            ("sig_ttl_morph_ff", "ttl-morph", 630, "watch", 640),
+            ("sig_egress_fork_k9", "egress-fork", 720, "flag", 730),
+            ("sig_probe_swarm_17", "probe-swarm", 680, "watch", 650),
+            ("sig_mesh_ghost_55", "mesh-ghost", 910, "block", 920),
+        ]
+        for signature_id, family, confidence, action, score in rows:
+            self.signatures[signature_id] = ThreatSignature(signature_id, family, confidence, action, score)
+        for signature_id, family, confidence, action, score in _parse_feed_rows(THREAT_FEED_TEXT):
+            self.signatures[signature_id] = ThreatSignature(signature_id, family, confidence, action, score)
+        for signature_id, family, confidence, action, score in _parse_feed_rows(THREAT_FEED_TEXT_EXTENDED):
+            self.signatures[signature_id] = ThreatSignature(signature_id, family, confidence, action, score)
+        self._push("core", "low", {"message": "signature-pack-seeded", "signature_count": len(self.signatures)})
+
