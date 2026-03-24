@@ -757,3 +757,72 @@ class NullifierCore:
             row = self.policy_pack.get(name)
             if not row:
                 return {"ok": False, "error": "policy-not-found"}
+            if action not in ("watch", "flag", "block"):
+                return {"ok": False, "error": "invalid-action"}
+            row["threshold"] = max(0, min(1000, threshold))
+            row["action"] = action
+            row["enabled"] = enabled
+            self._push("policy", "low", {"action": "update", "name": name})
+            return {"ok": True, "name": name}
+
+    def run_periodic_scan(self) -> Dict[str, object]:
+        with self._lock:
+            scan_id = _rand_id("scan")
+            active = [s for s in self.sessions.values() if not s.closed]
+            flagged = 0
+            for s in active:
+                signal = f"telemetry-{s.session_id[-6:]}"
+                pseudo_score = int(hashlib.sha256(signal.encode("utf-8")).hexdigest()[:4], 16) % 1001
+                result = self.evaluate_signal(s.account, s.session_id, signal, pseudo_score)
+                if result["action"] in ("flag", "block"):
+                    flagged += 1
+            row = {
+                "scan_id": scan_id,
+                "at": _now(),
+                "active_sessions": len(active),
+                "flagged_sessions": flagged,
+                "digest": _sha(f"{scan_id}:{len(active)}:{flagged}"),
+            }
+            self.scan_jobs[scan_id] = row
+            self.telemetry_rollups.append(row)
+            self.telemetry_rollups = self.telemetry_rollups[-500:]
+            self._push("scan", _risk_bucket(min(1000, flagged * 150)), row)
+            return {"ok": True, "scan": row}
+
+    def telemetry(self) -> Dict[str, object]:
+        with self._lock:
+            return {
+                "rollups": list(self.telemetry_rollups[-120:]),
+                "jobs_total": len(self.scan_jobs),
+                "events_total": len(self.events),
+            }
+
+    def simulation_profiles(self, limit: int = 200) -> List[Dict[str, object]]:
+        rows = []
+        for raw in SIMULATION_PROFILE_TEXT.splitlines():
+            line = raw.strip()
+            if not line:
+                continue
+            parts = line.split("|")
+            if len(parts) != 3:
+                continue
+            sim_id, track, tier = parts
+            rows.append({"sim_id": sim_id, "track": track, "tier": tier})
+            if len(rows) >= max(1, min(1200, limit)):
+                break
+        return rows
+
+    def appendix_notes(self, limit: int = 200) -> List[str]:
+        notes = []
+        for raw in PY_APPENDIX_NOTES.splitlines():
+            line = raw.strip()
+            if not line:
+                continue
+            notes.append(line)
+            if len(notes) >= max(1, min(2000, limit)):
+                break
+        return notes
+
+    def events_tail(self, count: int) -> List[Dict[str, object]]:
+        with self._lock:
+            clipped = self.events[-max(1, min(200, count)) :]
