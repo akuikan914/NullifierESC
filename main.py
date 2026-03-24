@@ -550,3 +550,72 @@ class NullifierCore:
                 "version": APP_VERSION,
                 "uptime_seconds": _now() - self.started_at,
                 "nodes_total": len(self.nodes),
+                "nodes_online": node_online,
+                "sessions_total": len(self.sessions),
+                "sessions_active": active_sessions,
+                "sessions_flagged": flagged_sessions,
+                "risk_score": max(0, min(1000, score)),
+                "risk_bucket": _risk_bucket(max(0, min(1000, score))),
+                "incidents_open": incident_open,
+                "policy_count": len(self.policy_pack),
+                "signature_count": len(self.signatures),
+            }
+
+    def list_nodes(self) -> List[Dict[str, object]]:
+        with self._lock:
+            rows = []
+            for node in self.nodes.values():
+                rows.append(
+                    {
+                        "node_id": node.node_id,
+                        "region": node.region,
+                        "endpoint": node.endpoint,
+                        "quality": node.quality,
+                        "health": node.health,
+                        "malware_bps": node.malware_bps,
+                        "online": node.online,
+                        "updated_at": node.updated_at,
+                    }
+                )
+            return rows
+
+    def register_node(self, region: str, endpoint: str, quality: int, health: int, malware_bps: int) -> Dict[str, object]:
+        with self._lock:
+            node_id = _rand_id("node")
+            row = NodeProfile(
+                node_id=node_id,
+                region=region.strip(),
+                endpoint=endpoint.strip(),
+                quality=max(0, min(1000, quality)),
+                health=max(0, min(1000, health)),
+                malware_bps=max(0, min(10000, malware_bps)),
+            )
+            self.nodes[node_id] = row
+            self._push("node", "low", {"action": "register", "node_id": node_id})
+            return {"ok": True, "node_id": node_id}
+
+    def update_node(self, node_id: str, patch: Dict[str, object]) -> Dict[str, object]:
+        with self._lock:
+            node = self.nodes.get(node_id)
+            if not node:
+                return {"ok": False, "error": "node-not-found"}
+            if "quality" in patch:
+                node.quality = max(0, min(1000, int(patch["quality"])))
+            if "health" in patch:
+                node.health = max(0, min(1000, int(patch["health"])))
+            if "malware_bps" in patch:
+                node.malware_bps = max(0, min(10000, int(patch["malware_bps"])))
+            if "online" in patch:
+                node.online = bool(patch["online"])
+            node.updated_at = _now()
+            self._push("node", "low", {"action": "update", "node_id": node_id})
+            return {"ok": True, "node_id": node_id}
+
+    def open_session(self, account: str, node_id: str, ttl_sec: int, collateral_wei: int) -> Dict[str, object]:
+        with self._lock:
+            node = self.nodes.get(node_id)
+            if not node or not node.online:
+                return {"ok": False, "error": "node-offline-or-missing"}
+            ttl = max(30, min(28800, ttl_sec))
+            collateral = max(1_000_000_000_000_000, min(2_000_000_000_000_000_000, collateral_wei))
+            sid = _rand_id("ses")
