@@ -895,3 +895,72 @@ class NullifierESCHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         if self.path == "/health":
+            self._send(HTTPStatus.OK, {"ok": True, "health": core.health()})
+            return
+        if self.path == "/nodes":
+            self._send(HTTPStatus.OK, {"ok": True, "nodes": core.list_nodes()})
+            return
+        if self.path == "/events":
+            self._send(HTTPStatus.OK, {"ok": True, "events": core.events_tail(100)})
+            return
+        if self.path == "/snapshot":
+            self._send(HTTPStatus.OK, {"ok": True, "snapshot": core.snapshot()})
+            return
+        if self.path == "/incidents":
+            self._send(HTTPStatus.OK, {"ok": True, "incidents": core.list_incidents()})
+            return
+        if self.path == "/policies":
+            self._send(HTTPStatus.OK, {"ok": True, "policies": core.list_policies()})
+            return
+        if self.path == "/telemetry":
+            self._send(HTTPStatus.OK, {"ok": True, "telemetry": core.telemetry()})
+            return
+        if self.path == "/signatures":
+            rows = [
+                {
+                    "signature_id": s.signature_id,
+                    "family": s.family,
+                    "confidence": s.confidence,
+                    "action": s.action,
+                    "score": s.score,
+                }
+                for s in core.signatures.values()
+            ]
+            rows.sort(key=lambda x: x["signature_id"])
+            self._send(HTTPStatus.OK, {"ok": True, "signatures": rows[:500]})
+            return
+        if self.path == "/simulations":
+            self._send(HTTPStatus.OK, {"ok": True, "simulations": core.simulation_profiles(500)})
+            return
+        if self.path == "/appendix-notes":
+            self._send(HTTPStatus.OK, {"ok": True, "notes": core.appendix_notes(500)})
+            return
+        self._send(HTTPStatus.NOT_FOUND, {"ok": False, "error": "not-found"})
+
+    def do_POST(self) -> None:  # noqa: N802
+        ok, body = self._read_json()
+        if not ok:
+            self._send(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "invalid-json"})
+            return
+
+        if self.path == "/node/register":
+            region = str(body.get("region", "")).strip()
+            endpoint = str(body.get("endpoint", "")).strip()
+            quality = int(body.get("quality", 500))
+            health = int(body.get("health", 500))
+            malware_bps = int(body.get("malware_bps", 100))
+            if not region or not endpoint:
+                self._send(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "missing-region-or-endpoint"})
+                return
+            self._send(HTTPStatus.OK, core.register_node(region, endpoint, quality, health, malware_bps))
+            return
+
+        if self.path == "/node/update":
+            node_id = str(body.get("node_id", "")).strip()
+            if not node_id:
+                self._send(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "missing-node-id"})
+                return
+            patch = {
+                k: body[k]
+                for k in ("quality", "health", "malware_bps", "online")
+                if k in body
