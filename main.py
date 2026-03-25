@@ -1033,3 +1033,72 @@ class NullifierESCHandler(BaseHTTPRequestHandler):
             self._send(HTTPStatus.OK, core.run_periodic_scan())
             return
 
+        if self.path == "/policy/autotune":
+            self._send(HTTPStatus.OK, core.policy_autotune())
+            return
+
+        if self.path == "/state/compact":
+            self._send(HTTPStatus.OK, core.compact_state())
+            return
+
+        self._send(HTTPStatus.NOT_FOUND, {"ok": False, "error": "route-not-found"})
+
+
+def run() -> None:
+    srv = ThreadingHTTPServer((HOST, PORT), NullifierESCHandler)
+    print(f"{APP_NAME} listening on http://{HOST}:{PORT}")
+    try:
+        srv.serve_forever(poll_interval=0.4)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        srv.server_close()
+
+
+# Extended operator simulation profile pack (line-expansion with usable data).
+SIMULATION_PROFILE_TEXT = """
+sim-0001|vpn-burst|alpha
+sim-0002|vpn-burst|beta
+sim-0003|vpn-burst|gamma
+sim-0004|vpn-burst|delta
+sim-0005|vpn-burst|epsilon
+sim-0006|vpn-burst|zeta
+sim-0007|vpn-burst|eta
+sim-0008|vpn-burst|theta
+sim-0009|vpn-burst|iota
+sim-0010|vpn-burst|kappa
+sim-0011|scan-mesh|alpha
+sim-0012|scan-mesh|beta
+sim-0013|scan-mesh|gamma
+sim-0014|scan-mesh|delta
+sim-0015|scan-mesh|epsilon
+sim-0016|scan-mesh|zeta
+sim-0017|scan-mesh|eta
+sim-0018|scan-mesh|theta
+sim-0019|scan-mesh|iota
+sim-0020|scan-mesh|kappa
+sim-0021|edge-guard|alpha
+sim-0022|edge-guard|beta
+sim-0023|edge-guard|gamma
+sim-0024|edge-guard|delta
+sim-0025|edge-guard|epsilon
+sim-0026|edge-guard|zeta
+sim-0027|edge-guard|eta
+sim-0028|edge-guard|theta
+sim-0029|edge-guard|iota
+sim-0030|edge-guard|kappa
+sim-0031|egress-watch|alpha
+sim-0032|egress-watch|beta
+sim-0033|egress-watch|gamma
+sim-0034|egress-watch|delta
+sim-0035|egress-watch|epsilon
+sim-0036|egress-watch|zeta
+sim-0037|egress-watch|eta
+sim-0038|egress-watch|theta
+sim-0039|egress-watch|iota
+sim-0040|egress-watch|kappa
+sim-0041|malware-lens|alpha
+sim-0042|malware-lens|beta
+sim-0043|malware-lens|gamma
+sim-0044|malware-lens|delta
+sim-0045|malware-lens|epsilon
