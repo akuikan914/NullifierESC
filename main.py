@@ -964,3 +964,72 @@ class NullifierESCHandler(BaseHTTPRequestHandler):
                 k: body[k]
                 for k in ("quality", "health", "malware_bps", "online")
                 if k in body
+            }
+            self._send(HTTPStatus.OK, core.update_node(node_id, patch))
+            return
+
+        if self.path == "/session/open":
+            account = str(body.get("account", "")).strip()
+            node_id = str(body.get("node_id", "")).strip()
+            ttl = int(body.get("ttl_sec", 3600))
+            collateral = int(body.get("collateral_wei", 2_500_000_000_000_000))
+            if not account or not node_id:
+                self._send(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "missing-account-or-node"})
+                return
+            self._send(HTTPStatus.OK, core.open_session(account, node_id, ttl, collateral))
+            return
+
+        if self.path == "/session/flag":
+            session_id = str(body.get("session_id", "")).strip()
+            signal = str(body.get("signal", "suspicious-host-behavior")).strip()
+            confidence = int(body.get("confidence", 740))
+            if not session_id:
+                self._send(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "missing-session-id"})
+                return
+            self._send(HTTPStatus.OK, core.flag_session(session_id, signal, confidence))
+            return
+
+        if self.path == "/signal/evaluate":
+            account = str(body.get("account", "")).strip()
+            session_id = str(body.get("session_id", "")).strip()
+            signal = str(body.get("signal", "signal")).strip()
+            intensity = int(body.get("intensity", 500))
+            if not account or not session_id:
+                self._send(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "missing-account-or-session-id"})
+                return
+            self._send(HTTPStatus.OK, core.evaluate_signal(account, session_id, signal, intensity))
+            return
+
+        if self.path == "/session/close":
+            session_id = str(body.get("session_id", "")).strip()
+            reason = str(body.get("reason", "manual-close")).strip()
+            if not session_id:
+                self._send(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "missing-session-id"})
+                return
+            self._send(HTTPStatus.OK, core.close_session(session_id, reason))
+            return
+
+        if self.path == "/incident/close":
+            ticket_id = str(body.get("ticket_id", "")).strip()
+            notes = str(body.get("notes", "closed-by-operator")).strip()
+            if not ticket_id:
+                self._send(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "missing-ticket-id"})
+                return
+            self._send(HTTPStatus.OK, core.close_incident(ticket_id, notes))
+            return
+
+        if self.path == "/policy/update":
+            name = str(body.get("name", "")).strip()
+            threshold = int(body.get("threshold", 650))
+            action = str(body.get("action", "watch")).strip()
+            enabled = bool(body.get("enabled", True))
+            if not name:
+                self._send(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "missing-policy-name"})
+                return
+            self._send(HTTPStatus.OK, core.update_policy(name, threshold, action, enabled))
+            return
+
+        if self.path == "/scan/run":
+            self._send(HTTPStatus.OK, core.run_periodic_scan())
+            return
+
