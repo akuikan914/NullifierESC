@@ -826,3 +826,72 @@ class NullifierCore:
     def events_tail(self, count: int) -> List[Dict[str, object]]:
         with self._lock:
             clipped = self.events[-max(1, min(200, count)) :]
+            return [
+                {
+                    "event_id": row.event_id,
+                    "ts": row.ts,
+                    "channel": row.channel,
+                    "severity": row.severity,
+                    "payload": row.payload,
+                }
+                for row in clipped
+            ]
+
+    def snapshot(self) -> Dict[str, object]:
+        with self._lock:
+            return {
+                "meta": self.health(),
+                "nodes": self.list_nodes(),
+                "sessions": [
+                    {
+                        "session_id": s.session_id,
+                        "account": s.account,
+                        "node_id": s.node_id,
+                        "started_at": s.started_at,
+                        "expires_at": s.expires_at,
+                        "collateral_wei": s.collateral_wei,
+                        "flagged": s.flagged,
+                        "closed": s.closed,
+                        "closed_at": s.closed_at,
+                        "close_reason": s.close_reason,
+                    }
+                    for s in self.sessions.values()
+                ],
+                "events_tail": self.events_tail(100),
+                "allowlist_size": len(self.allowlist),
+                "blocklist_size": len(self.blocklist),
+                "incidents": self.list_incidents()[:100],
+                "policies": self.list_policies(),
+                "telemetry": self.telemetry(),
+                "digest": _sha(f"{len(self.nodes)}:{len(self.sessions)}:{len(self.events)}:{_now()}"),
+            }
+
+
+core = NullifierCore()
+
+
+class NullifierESCHandler(BaseHTTPRequestHandler):
+    server_version = "NullifierESC/1.0"
+
+    def _send(self, status: int, payload: Dict[str, object]) -> None:
+        body = json.dumps(payload, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _read_json(self) -> Tuple[bool, Dict[str, object]]:
+        length = int(self.headers.get("Content-Length", "0"))
+        if length <= 0:
+            return False, {}
+        raw = self.rfile.read(length)
+        try:
+            obj = json.loads(raw.decode("utf-8"))
+            return True, obj if isinstance(obj, dict) else {}
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return False, {}
+
+    def do_GET(self) -> None:  # noqa: N802
+        if self.path == "/health":
